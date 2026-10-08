@@ -1,34 +1,20 @@
-import sqlite3 as sq
+"""Preserve the UI API without a shared cursor or connection."""
+from backend.connection import connect_database
 
 
-# connexion a la base de donnees ...
-my_database = sq.connect("projet_stage.db")
+def get_execute_request_with_params(request, params):
+    with connect_database() as connection:
+        return connection.execute(request, params).fetchall()
 
-# creation du curseur ....
-curseur = my_database.cursor()
-
-# creation de la fonction sans parametre ...
-
-def get_execute_request_with_params(request,params):
-    curseur.execute(request, params)
-    result = curseur.fetchall()
-    
-    # retour du resultat de la requete ...
-    return result
 
 def get_execute_request_without_params(request):
-    curseur.execute(request)
-    result = curseur.fetchall()
-    
-    # retour du resultat de la requete ...
-    return result
+    return get_execute_request_with_params(request, ())
 
 
-# requetes ayant pour but d'ajouter les donnees dans la base de donnees 
-def set_execute_request_with_params(request,params):
-    curseur.execute(request,params)
-    my_database.commit()
-    
+def set_execute_request_with_params(request, params):
+    with connect_database() as connection:
+        return connection.execute(request, params).lastrowid
+
+
 def set_execute_request_without_params(request):
-    curseur.execute(request)
-    my_database.commit()
+    return set_execute_request_with_params(request, ())
