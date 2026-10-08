@@ -3,7 +3,7 @@ import math
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from tkinter import messagebox, ttk
+from tkinter import TclError, messagebox, ttk
 
 import customtkinter as ctk
 
@@ -11,6 +11,9 @@ from backend.auth import AuthenticationError, authenticate_user, register_user
 from backend.dashboard import MODULES, dashboard_counts, list_records, user_profile
 from backend.migrations import MigrationError, migrate_passwords
 from backend.management import delete_record, form_fields, get_record, initial_values, save_record
+from backend.statistics import statistics_snapshot
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from ui.charts import event_figure, spending_figure
 
 BACKGROUND = ('#F3F6FB', '#0B1220')
 SURFACE = ('#FFFFFF', '#142033')
@@ -35,6 +38,8 @@ class PersonalManager(ctk.CTk):
         self.generation = 0
         self.polls = set()
         self.user = None
+        self.chart_canvases = []
+        self.current_view = None
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -61,6 +66,7 @@ class PersonalManager(ctk.CTk):
                              text_color=TEXT if secondary else '#FFFFFF', **kwargs)
 
     def replace_root(self):
+        self.cleanup_charts()
         self.generation += 1
         for widget in self.winfo_children():
             widget.destroy()
@@ -68,6 +74,7 @@ class PersonalManager(ctk.CTk):
         self.screen.grid(row=0, column=0, sticky='nsew')
 
     def clear_content(self):
+        self.cleanup_charts()
         self.generation += 1
         for widget in self.content.winfo_children():
             widget.destroy()
@@ -113,6 +120,7 @@ class PersonalManager(ctk.CTk):
         self.polls.add(poll_id[0])
 
     def close(self):
+        self.cleanup_charts()
         for identifier in self.polls:
             self.after_cancel(identifier)
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -245,6 +253,8 @@ class PersonalManager(ctk.CTk):
     def change_theme(self, selection):
         ctk.set_appearance_mode('Light' if selection == 'Clair' else 'Dark')
         self.apply_table_theme()
+        if self.current_view == 'home':
+            self.navigate('home')
 
     def apply_table_theme(self):
         dark = ctk.get_appearance_mode() == 'Dark'
@@ -258,6 +268,7 @@ class PersonalManager(ctk.CTk):
         self.style.map('PM.Treeview.Heading', background=[('active', heading)])
 
     def navigate(self, key, page=0, notice=''):
+        self.current_view = key
         self.clear_content()
         for name, button in self.navigation.items():
             button.configure(fg_color=ACCENT if name == key else 'transparent')
@@ -276,29 +287,78 @@ class PersonalManager(ctk.CTk):
         self.label(bar, subtitle, muted=True).grid(row=1, column=0, sticky='w', pady=5)
         self.button(bar, action_label, refresh, secondary=True, width=110).grid(row=0, column=1, rowspan=2, padx=(10, 0))
 
+    def cleanup_charts(self):
+        for canvas in self.chart_canvases:
+            # TkAgg schedules resize/idle callbacks on its widget; cancel before destroying it.
+            widget = canvas.get_tk_widget()
+            for attribute in ('_idle_draw_id', '_event_loop_id'):
+                identifier = getattr(canvas, attribute, None)
+                if identifier is not None:
+                    try:
+                        widget.after_cancel(identifier)
+                    except TclError:
+                        pass
+                    setattr(canvas, attribute, None)
+            canvas.figure.clear()
+        self.chart_canvases.clear()
+
+    def mount_chart(self, parent, figure):
+        canvas = FigureCanvasTkAgg(figure, master=parent)
+        self.chart_canvases.append(canvas)
+        canvas.get_tk_widget().pack(fill='both', expand=True, padx=12, pady=(0, 12))
+        canvas.draw()
+
     def home(self):
         self.heading('Vue d’ensemble', date.today().strftime('%d/%m/%Y')+' · Votre activité en un coup d’œil',
                      lambda: self.navigate('home'))
-        cards = ctk.CTkFrame(self.content, fg_color='transparent')
-        cards.grid(row=1, column=0, sticky='ew')
-        cards.grid_columnconfigure((0, 1), weight=1, uniform='cards')
+        self.content.grid_rowconfigure(1, weight=1)
+        body = ctk.CTkScrollableFrame(self.content, fg_color='transparent')
+        body.grid(row=1, column=0, sticky='nsew')
+        body.grid_columnconfigure(0, weight=1)
+        cards = ctk.CTkFrame(body, fg_color='transparent')
+        cards.grid(row=0, column=0, sticky='ew')
+        cards.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform='cards')
         numbers = {}
         for index, (key, module) in enumerate(MODULES.items()):
-            card = ctk.CTkFrame(cards, fg_color=SURFACE, corner_radius=14)
-            card.grid(row=index//2, column=index%2, sticky='ew', padx=(0, 12), pady=(0, 14))
-            self.label(card, module.title, muted=True).pack(anchor='w', padx=22, pady=(18, 0))
-            numbers[key] = self.label(card, '…', size=38, bold=True)
-            numbers[key].pack(anchor='w', padx=22, pady=(0, 10))
-            self.button(card, 'Consulter', lambda key=key: self.navigate(key), secondary=True).pack(
-                anchor='w', padx=22, pady=(0, 18))
-        status = self.label(self.content, 'Chargement des indicateurs…', muted=True)
-        status.grid(row=2, column=0, sticky='w', pady=12)
+            card = ctk.CTkFrame(cards, fg_color=SURFACE, corner_radius=12)
+            card.grid(row=0, column=index, sticky='ew', padx=(0, 8), pady=(0, 14))
+            self.label(card, module.title, size=12, muted=True).pack(anchor='w', padx=14, pady=(14, 0))
+            numbers[key] = self.label(card, '…', size=30, bold=True)
+            numbers[key].pack(anchor='w', padx=14, pady=(0, 4))
+            self.button(card, 'Consulter', lambda key=key: self.navigate(key), secondary=True,
+                        width=95).pack(anchor='w', padx=14, pady=(0, 14))
+        events_panel = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=14)
+        events_panel.grid(row=1, column=0, sticky='ew', pady=(0, 16))
+        self.label(events_panel, 'Rendez-vous par mois', size=17, bold=True).pack(anchor='w', padx=20, pady=(16, 3))
+        event_note = self.label(events_panel, 'Les six derniers mois, selon la date prévue.', size=12, muted=True,
+                                wraplength=620, anchor='w')
+        event_note.pack(fill='x', padx=20, pady=(0, 8))
+        expenses_panel = ctk.CTkFrame(body, fg_color=SURFACE, corner_radius=14)
+        expenses_panel.grid(row=2, column=0, sticky='ew', pady=(0, 16))
+        self.label(expenses_panel, 'Décaissements payés par motif', size=17, bold=True).pack(
+            anchor='w', padx=20, pady=(16, 3))
+        expense_note = self.label(expenses_panel, 'Toutes les dates · Factures payées uniquement.', size=12,
+                                  muted=True, wraplength=620, anchor='w')
+        expense_note.pack(fill='x', padx=20, pady=(0, 8))
+        status = self.label(body, 'Chargement des indicateurs…', muted=True, wraplength=650, anchor='w')
+        status.grid(row=3, column=0, sticky='ew', pady=8)
 
-        def loaded(counts):
-            for key, value in counts.items():
+        def loaded(data):
+            for key, value in data['counts'].items():
                 numbers[key].configure(text=str(value))
-            status.configure(text='Indicateurs calculés à partir de vos données locales.')
-        self.run_task(dashboard_counts, loaded, error_label=status)
+            dark = ctk.get_appearance_mode() == 'Dark'
+            self.mount_chart(events_panel, event_figure(data['months'], dark))
+            self.mount_chart(expenses_panel, spending_figure(data['spending'], dark))
+            months = data['months']
+            note = f"Période {months[0][0]} à {months[-1][0]} · Selon la date prévue."
+            if data['invalid_dates']:
+                note += f" {data['invalid_dates']} date(s) ancienne(s) ou invalide(s) exclue(s)."
+            event_note.configure(text=note)
+            if data['invalid_amounts']:
+                expense_note.configure(text='Toutes les dates · Factures payées uniquement. '+
+                                       f"{data['invalid_amounts']} montant(s) invalide(s) exclu(s).")
+            status.configure(text='Indicateurs calculés à partir de vos enregistrements.')
+        self.run_task(statistics_snapshot, loaded, error_label=status)
 
     def records(self, key, page, notice=''):
         module = MODULES[key]
@@ -402,6 +462,7 @@ class PersonalManager(ctk.CTk):
         self.run_task(lambda: user_profile(identifier), loaded, error_label=status)
 
     def show_form(self, key, identifier=None, page=0):
+        self.current_view = 'form:'+key
         self.clear_content()
         module = MODULES[key]
         self.heading(('Modifier' if identifier is not None else 'Ajouter')+' · '+module.title,

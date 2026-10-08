@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('bcrypt', 'customtkinter'))
+AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('bcrypt', 'customtkinter', 'matplotlib'))
 
 
-@unittest.skipUnless(AVAILABLE, 'bcrypt/customtkinter unavailable: modern widget checks pending')
+@unittest.skipUnless(AVAILABLE, 'bcrypt/customtkinter/matplotlib unavailable: modern widget checks pending')
 class ModernWidgetTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -117,3 +117,16 @@ class ModernWidgetTests(unittest.TestCase):
         self.drain_tasks()
         self.assertIn('entier positif', self.app.form_status.cget('text'))
         self.assertEqual(dashboard_counts()['finances'], 0)
+
+    def test_dashboard_charts_follow_theme_and_are_released_on_navigation(self):
+        self.sign_in_test_user()
+        self.assertEqual(len(self.app.chart_canvases), 2)
+        self.app.change_theme('Clair')
+        self.drain_tasks()
+        self.assertEqual(len(self.app.chart_canvases), 2)
+        self.app.navigate('clients')
+        self.drain_tasks()
+        self.assertEqual(self.app.chart_canvases, [])
+        self.app.navigate('home')
+        self.drain_tasks()
+        self.assertEqual(len(self.app.chart_canvases), 2)
