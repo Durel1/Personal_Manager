@@ -1,8 +1,8 @@
 from tkinter import *
 # import pymysql
 from tkinter import messagebox as mb
-from subprocess import call
-from backend.requests_db import get_execute_request_with_params
+import sqlite3
+from backend.auth import authenticate_user, AuthenticationError
 from pages.authentication.forget_password import ForgetPassword
 
 from pages.authentication.register_page import RegisterPage
@@ -14,7 +14,7 @@ class LoginPage:
               self.width = width
               self.height = height
               # root = fenetre parent, width et height sont les dimensions de la fenetre
-              
+
               #creation d'un canva de taille equale a la page Loginpage
               self.page = Canvas(root,width=width,height=height,bg="#1c141f")
               self.image = PhotoImage(file="login.png")
@@ -38,7 +38,7 @@ class LoginPage:
               Label(self.page,text="Mot de passe :",fg="white",bg="#1c141f",font=("Arial",15)).place(x=600, y=275)
               self.password = Entry(self.page, text="", font=("Arial",15,"bold"),show="*")
               self.password.place(x=760, y=275)
-              
+
               Button(self.page,text="                    Se connecter                    ",bg="#3711d1",font=("Arial",15,"bold"),fg="white",bd=0
                ,command=self.connection).place(x=605,y=380)
 
@@ -52,30 +52,20 @@ class LoginPage:
 
               self.page.place(x=0,y=0)
 
-        
-       def connection(self):             
+
+       def connection(self):
+              username = self.username.get().strip()
+              password = self.password.get()
+              if not username or not password:
+                     mb.showwarning("Attention", "Veuillez remplir tous les champs.")
+                     return
+              try:
+                     user = authenticate_user(username, password)
+              except (sqlite3.Error, AuthenticationError):
+                     mb.showerror("Connexion impossible", "La base est indisponible ou doit être migrée.")
+                     return
+              if user is None:
+                     mb.showwarning("Connexion", "Nom utilisateur ou mot de passe incorrect.")
+                     return
               from pages.home.home_page import HomePage
-              # recuperation des infos du user et test s'il existe
-              request = "select * from User where fullname=?"
-              params = (self.username.get(),)
-              data = get_execute_request_with_params(request,params)
-              
-              # liste des contraintes ....
-              if self.username.get() == "" and self.password.get() =="":
-                     mb.showwarning("Attention ","Veillez remplir tous les champs")
-              elif self.username.get() == "" and self.password.get() !="" :
-                     mb.showwarning("Attention ","Veillez Entrer votre nom !")
-              elif self.password.get() =="" :
-                     mb.showwarning("Attention ","Veillez entrer votre mot de passe !")
-              elif self.username.get() !="" and self.password.get() !="":
-                     if len(data)==0:
-
-                            mb.showinfo("Avertissement", "Vous n'etes pas inscrit !")
-                     elif str(data[0][2]) == self.password.get():
-
-                            call([HomePage(self.page,self.width,self.height,self.username.get())])
-                     else:
-                            print('erreur : ', data)
-                            mb.showinfo("Avertissement","Mot de pase incorrect !")
-
-              #call([HomePage(self.page,self.width,self.height)])
+              HomePage(self.page, self.width, self.height, user['fullname'])
