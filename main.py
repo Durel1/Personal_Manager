@@ -1,15 +1,25 @@
 # importation de tkinter ...
 from tkinter import *
-from backend.create_database import Database
+import sqlite3
+from tkinter import messagebox
+from backend.migrations import migrate_passwords, MigrationError
+from backend.auth import AuthenticationError
 #importation de la page login
 from pages.authentication.login_page import LoginPage
 
 #creation de la class (pion d'entre de l'appli)
 class MainApp:
     def __init__(self):
-        # appel de la classe qui cree la BD et ses tables 
-        Database()
+        # appel de la classe qui cree la BD et ses tables
         self.root = Tk()
+        self.root.withdraw()
+        try:
+            migrate_passwords()
+        except (sqlite3.Error, MigrationError, AuthenticationError) as error:
+            messagebox.showerror("Initialisation impossible", str(error), parent=self.root)
+            self.root.destroy()
+            return
+        self.root.deiconify()
         self.root.title("PersonalManager")
         self.root.geometry("1200x600+75+60")
         # self.root.iconbitmap("icone.ico")
@@ -21,10 +31,5 @@ class MainApp:
         # adffichage de la fenetre
         self.root.mainloop()
 
-#appel de la class mainapp
-ma_fenetre = MainApp()
-print(ma_fenetre)
-
-
-
-
+if __name__ == '__main__':
+    MainApp()

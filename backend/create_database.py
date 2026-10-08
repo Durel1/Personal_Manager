@@ -1,13 +1,13 @@
 # importation des dependances...
-import sqlite3 as sq
+from backend.connection import connect_database
 
 # creation de la table User
-cree_table_utilisateur = """ 
+cree_table_utilisateur = """
 CREATE TABLE IF NOT EXISTS User  (
     id INTEGER  PRIMARY KEY,
     fullname text NOT NULL,
-    password MOT NULL,
-    email text NOT NULL, 
+    password TEXT NOT NULL,
+    email text NOT NULL,
     phone text NOT NULL,
     gender text NOT NULL
     )"""
@@ -21,38 +21,38 @@ CREATE TABLE IF NOT EXISTS Event (
     phone text NOT NULL,
     place text NOT NULL,
     event_status text NOT NULL,
-    reason_event text NOT NULL, 
+    reason_event text NOT NULL,
     eventdate text NOT NULL ,
-    hour_event text NOT NULL 
+    hour_event text NOT NULL
     )"""
 
 # creation table client
 cree_table_client = """
 CREATE TABLE IF NOT EXISTS Client (
     id integer  PRIMARY KEY,
-    fullname text NOT NULL , 
-    email text NOT NULL , 
-    phone interger NOT NULL , 
+    fullname text NOT NULL ,
+    email text NOT NULL ,
+    phone TEXT NOT NULL ,
     city text NOT NULL ,
     sector text NOT NULL ,
-    gender text NOT NULL , 
-    quater text NOT NULL 
+    gender text NOT NULL ,
+    quater text NOT NULL
     )"""
 
-cree_table_employer = """ 
+cree_table_employer = """
 CREATE TABLE IF NOT EXISTS Employee (
     id integer PRIMARY KEY,
     fullname text NOT NULL ,
     email text NOT NULL ,
-    phone interger NOT NULL ,
-    gender text NOT NULL 
+    phone TEXT NOT NULL ,
+    gender text NOT NULL
     )"""
 
 # creation table finance
 cree_table_finance = """
 CREATE TABLE IF NOT EXISTS Finance (
     id  integer PRIMARY KEY,
-    reason text NOT NULL , 
+    reason text NOT NULL ,
     amount integer NOT NULL,
     date text NOT NULL,
     status text NOT NULL,
@@ -60,29 +60,16 @@ CREATE TABLE IF NOT EXISTS Finance (
     )"""
 
 
-# creation de la classe database 
+# creation de la classe database
 
 class Database:
-    def __init__(self):
-        # creation de la base de donnees .
-        self.my_database = sq.connect("projet_stage.db")
-        
-        # creation du curseur pour executer/parcourir notre base de donnees ...
-        self.curseur = self.my_database.cursor()
-        
-        # appel de la fonction de creation des tables.
+    def __init__(self, path=None):
+        self.path = path
         self.CreateTable()
-    
+
     def CreateTable(self):
-        # execution de nos requetes
-        self.curseur.execute(cree_table_utilisateur)
-        self.curseur.execute(cree_table_finance)
-        self.curseur.execute(cree_table_employer)
-        self.curseur.execute(cree_table_client)
-        self.curseur.execute(cree_table_Event)
-        
-        # mise a jour des modifications dans la base de donnees ...
-        self.my_database.commit()
-        
-            
-        
+        with connect_database(self.path) as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            for sql in (cree_table_utilisateur, cree_table_finance,
+                        cree_table_employer, cree_table_client, cree_table_Event):
+                connection.execute(sql)
