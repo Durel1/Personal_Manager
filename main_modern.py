@@ -1,4 +1,4 @@
-"""Launch the modern preview; main.py keeps the complete legacy application."""
+"""Alternate entry point for the modern application; main.py is now the default."""
 from ui.application import PersonalManager
 
 if __name__ == '__main__':

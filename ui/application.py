@@ -28,7 +28,7 @@ class PersonalManager(ctk.CTk):
     def __init__(self):
         ctk.set_appearance_mode('Dark')
         super().__init__()
-        self.title('PersonalManager — Aperçu de la nouvelle interface')
+        self.title('PersonalManager')
         self.geometry('1180x760')
         self.minsize(1000, 680)
         self.configure(fg_color=BACKGROUND)
