@@ -71,3 +71,49 @@ class ModernWidgetTests(unittest.TestCase):
         self.app.show_register()
         self.drain_tasks()
         self.assertEqual(completed, [])
+
+    def sign_in_test_user(self):
+        from backend.auth import register_user
+        identifier = register_user('FormTest', 'Secret123!', 'test@example.com', '00123', 'Homme')
+        self.app.user = {'id': identifier, 'fullname': 'FormTest'}
+        self.app.show_shell()
+        self.drain_tasks()
+
+    def fill_finance_form(self, amount):
+        values = dict(reason='UI invoice', amount=amount, date='2026-10-09',
+                      status='Non Payée', type='Encaissement')
+        for key, value in values.items():
+            widget = self.app.form_fields[key]
+            if key in ('status', 'type'):
+                widget.set(value)
+            else:
+                widget.delete(0, 'end')
+                widget.insert(0, value)
+
+    def test_finance_form_creates_then_updates_same_record(self):
+        from backend.management import get_record
+        from backend.dashboard import dashboard_counts
+        self.sign_in_test_user()
+        self.app.show_form('finances')
+        self.fill_finance_form('1000')
+        self.app.form_save_button.invoke()
+        self.drain_tasks()
+        self.assertEqual(dashboard_counts()['finances'], 1)
+        identifier = int(self.app.record_tree.get_children()[0])
+        self.app.show_form('finances', identifier)
+        self.drain_tasks()
+        self.fill_finance_form('2500')
+        self.app.form_save_button.invoke()
+        self.drain_tasks()
+        self.assertEqual(dashboard_counts()['finances'], 1)
+        self.assertEqual(get_record('finances', identifier)['amount'], 2500)
+
+    def test_invalid_form_shows_message_without_writing(self):
+        from backend.dashboard import dashboard_counts
+        self.sign_in_test_user()
+        self.app.show_form('finances')
+        self.fill_finance_form('not-a-number')
+        self.app.form_save_button.invoke()
+        self.drain_tasks()
+        self.assertIn('entier positif', self.app.form_status.cget('text'))
+        self.assertEqual(dashboard_counts()['finances'], 0)

@@ -10,6 +10,7 @@ import customtkinter as ctk
 from backend.auth import AuthenticationError, authenticate_user, register_user
 from backend.dashboard import MODULES, dashboard_counts, list_records, user_profile
 from backend.migrations import MigrationError, migrate_passwords
+from backend.management import delete_record, form_fields, get_record, initial_values, save_record
 
 BACKGROUND = ('#F3F6FB', '#0B1220')
 SURFACE = ('#FFFFFF', '#142033')
@@ -256,7 +257,7 @@ class PersonalManager(ctk.CTk):
         self.style.map('PM.Treeview', background=[('selected', ACCENT)], foreground=[('selected', 'white')])
         self.style.map('PM.Treeview.Heading', background=[('active', heading)])
 
-    def navigate(self, key, page=0):
+    def navigate(self, key, page=0, notice=''):
         self.clear_content()
         for name, button in self.navigation.items():
             button.configure(fg_color=ACCENT if name == key else 'transparent')
@@ -265,15 +266,15 @@ class PersonalManager(ctk.CTk):
         elif key == 'profile':
             self.profile()
         else:
-            self.records(key, page)
+            self.records(key, page, notice)
 
-    def heading(self, title, subtitle, refresh):
+    def heading(self, title, subtitle, refresh, action_label='Actualiser'):
         bar = ctk.CTkFrame(self.content, fg_color='transparent')
         bar.grid(row=0, column=0, sticky='ew', pady=(0, 24))
         bar.grid_columnconfigure(0, weight=1)
         self.label(bar, title, size=28, bold=True).grid(row=0, column=0, sticky='w')
         self.label(bar, subtitle, muted=True).grid(row=1, column=0, sticky='w', pady=5)
-        self.button(bar, 'Actualiser', refresh, secondary=True, width=110).grid(row=0, column=1, rowspan=2, padx=(10, 0))
+        self.button(bar, action_label, refresh, secondary=True, width=110).grid(row=0, column=1, rowspan=2, padx=(10, 0))
 
     def home(self):
         self.heading('Vue d’ensemble', date.today().strftime('%d/%m/%Y')+' · Votre activité en un coup d’œil',
@@ -299,24 +300,64 @@ class PersonalManager(ctk.CTk):
             status.configure(text='Indicateurs calculés à partir de vos données locales.')
         self.run_task(dashboard_counts, loaded, error_label=status)
 
-    def records(self, key, page):
+    def records(self, key, page, notice=''):
         module = MODULES[key]
-        self.heading(module.title, 'Consultez vos enregistrements.', lambda: self.navigate(key, page))
+        self.heading(module.title, notice or 'Sélectionnez une ligne pour la modifier ou la supprimer.',
+                     lambda: self.navigate(key, page))
         self.content.grid_rowconfigure(1, weight=1)
         panel = ctk.CTkFrame(self.content, fg_color=SURFACE, corner_radius=12)
         panel.grid(row=1, column=0, sticky='nsew')
         panel.grid_columnconfigure(0, weight=1)
-        panel.grid_rowconfigure(0, weight=1)
+        panel.grid_rowconfigure(1, weight=1)
+        toolbar = ctk.CTkFrame(panel, fg_color='transparent')
+        toolbar.grid(row=0, column=0, columnspan=2, sticky='ew', padx=12, pady=(12, 0))
+        self.button(toolbar, 'Ajouter', lambda: self.show_form(key), width=120).pack(side='left', padx=(0, 10))
         tree = ttk.Treeview(panel, columns=module.columns, show='headings', style='PM.Treeview')
-        tree.grid(row=0, column=0, sticky='nsew', padx=(12, 0), pady=(12, 0))
+        tree.grid(row=1, column=0, sticky='nsew', padx=(12, 0), pady=(12, 0))
         for column, title in zip(module.columns, module.headings):
             tree.heading(column, text=title)
             tree.column(column, width=65 if column == 'id' else 150, minwidth=60, stretch=False)
         vertical = ctk.CTkScrollbar(panel, command=tree.yview)
-        vertical.grid(row=0, column=1, sticky='ns', pady=12)
+        vertical.grid(row=1, column=1, sticky='ns', pady=12)
         horizontal = ctk.CTkScrollbar(panel, command=tree.xview, orientation='horizontal')
-        horizontal.grid(row=1, column=0, sticky='ew', padx=12, pady=6)
+        horizontal.grid(row=2, column=0, sticky='ew', padx=12, pady=6)
         tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self.record_tree = tree
+
+        def selected_id():
+            selected = tree.selection()
+            return int(selected[0]) if selected else None
+
+        def edit_selected():
+            identifier = selected_id()
+            if identifier is not None:
+                self.show_form(key, identifier, page)
+
+        def remove_selected():
+            identifier = selected_id()
+            if identifier is None:
+                return
+            values = tree.item(str(identifier), 'values')
+            name = values[1] if len(values) > 1 else str(identifier)
+            if not messagebox.askyesno('Supprimer', f'Supprimer « {name} » (ID {identifier}) ?', parent=self):
+                return
+            self.run_task(lambda: delete_record(key, identifier),
+                          lambda _: self.navigate(key, page, notice='Enregistrement supprimé.'),
+                          button=remove, error_label=status)
+
+        edit = self.button(toolbar, 'Modifier', edit_selected, secondary=True, width=120)
+        edit.pack(side='left', padx=(0, 10))
+        remove = self.button(toolbar, 'Supprimer', remove_selected, secondary=True, width=120)
+        remove.pack(side='left')
+        edit.configure(state='disabled')
+        remove.configure(state='disabled')
+
+        def selection_changed(_):
+            state = 'normal' if tree.selection() else 'disabled'
+            edit.configure(state=state)
+            remove.configure(state=state)
+        tree.bind('<<TreeviewSelect>>', selection_changed)
+        tree.bind('<Double-1>', lambda _: edit_selected())
         footer = ctk.CTkFrame(self.content, fg_color='transparent')
         footer.grid(row=2, column=0, sticky='ew', pady=(14, 0))
         footer.grid_columnconfigure(0, weight=1)
@@ -336,7 +377,7 @@ class PersonalManager(ctk.CTk):
                 self.navigate(key, last_page)
                 return
             for row in rows:
-                tree.insert('', 'end', values=[str(value) if value is not None else '—' for value in row])
+                tree.insert('', 'end', iid=str(row[0]), values=[str(value) if value is not None else '—' for value in row])
             status.configure(text='Aucun enregistrement.' if total == 0 else
                              f'{total} enregistrements · Page {page+1}/{last_page+1}')
             previous.configure(state='normal' if page > 0 else 'disabled')
@@ -359,3 +400,64 @@ class PersonalManager(ctk.CTk):
                 self.label(card, data[key], size=17, wraplength=700, anchor='w').pack(
                     fill='x', padx=25, pady=(0, 12))
         self.run_task(lambda: user_profile(identifier), loaded, error_label=status)
+
+    def show_form(self, key, identifier=None, page=0):
+        self.clear_content()
+        module = MODULES[key]
+        self.heading(('Modifier' if identifier is not None else 'Ajouter')+' · '+module.title,
+                     'Tous les champs sont obligatoires.', lambda: self.navigate(key, page), action_label='Retour')
+        self.content.grid_rowconfigure(1, weight=1)
+        container = ctk.CTkFrame(self.content, fg_color='transparent')
+        container.grid(row=1, column=0, sticky='nsew')
+        container.grid_columnconfigure(0, weight=1)
+        container.grid_rowconfigure(0, weight=1)
+        status = self.label(container, 'Chargement du formulaire…', muted=True)
+        status.grid(row=0, column=0, sticky='nw', pady=16)
+
+        def loaded(values):
+            status.destroy()
+            self.render_form(container, key, values, identifier, page)
+        if identifier is None:
+            loaded(initial_values(key))
+        else:
+            self.run_task(lambda: get_record(key, identifier), loaded, error_label=status)
+
+    def render_form(self, container, key, values, identifier, page):
+        scroll = ctk.CTkScrollableFrame(container, fg_color=SURFACE, corner_radius=14)
+        scroll.grid(row=0, column=0, sticky='nsew')
+        scroll.grid_columnconfigure((0, 1), weight=1, uniform='fields')
+        widgets = {}
+        self.form_fields = widgets
+        for index, field in enumerate(form_fields(key)):
+            cell = ctk.CTkFrame(scroll, fg_color='transparent')
+            cell.grid(row=index//2, column=index%2, sticky='ew', padx=18, pady=12)
+            self.label(cell, field.label, size=13).pack(anchor='w', pady=(0, 7))
+            value = str(values.get(field.key, '')).strip()
+            if field.choices:
+                widget = ctk.CTkOptionMenu(cell, values=list(field.choices), height=42,
+                                           font=(FONT, 14), fg_color=ACCENT, button_color=HOVER)
+                widget.set(value)
+            else:
+                widget = ctk.CTkEntry(cell, height=42, font=(FONT, 14))
+                widget.insert(0, value)
+            widget.pack(fill='x')
+            widgets[field.key] = widget
+        status = self.label(container, '', size=13, wraplength=650, anchor='w')
+        status.configure(text_color=('#B42318', '#FF9D97'))
+        status.grid(row=1, column=0, sticky='ew', pady=(14, 6))
+        self.form_status = status
+        actions = ctk.CTkFrame(container, fg_color='transparent')
+        actions.grid(row=2, column=0, sticky='ew', pady=8)
+
+        def submit():
+            # Capture Entry values on the Tk thread before scheduling the SQL work.
+            payload = {name: widget.get() for name, widget in widgets.items()}
+            status.configure(text='Enregistrement en cours…')
+            self.run_task(lambda: save_record(key, payload, identifier),
+                          lambda _: self.navigate(key, page, notice='Modifications enregistrées.' if identifier
+                                                  is not None else 'Enregistrement ajouté.'),
+                          button=save, error_label=status)
+        save = self.button(actions, 'Enregistrer', submit, width=160)
+        save.pack(side='left', padx=(0, 12))
+        self.form_save_button = save
+        self.button(actions, 'Annuler', lambda: self.navigate(key, page), secondary=True, width=120).pack(side='left')
