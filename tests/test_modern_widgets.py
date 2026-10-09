@@ -98,15 +98,15 @@ class ModernWidgetTests(unittest.TestCase):
         self.fill_finance_form('1000')
         self.app.form_save_button.invoke()
         self.drain_tasks()
-        self.assertEqual(dashboard_counts()['finances'], 1)
+        self.assertEqual(dashboard_counts(actor_id=self.app.user['id'])['finances'], 1)
         identifier = int(self.app.record_tree.get_children()[0])
         self.app.show_form('finances', identifier)
         self.drain_tasks()
         self.fill_finance_form('2500')
         self.app.form_save_button.invoke()
         self.drain_tasks()
-        self.assertEqual(dashboard_counts()['finances'], 1)
-        self.assertEqual(get_record('finances', identifier)['amount'], 2500)
+        self.assertEqual(dashboard_counts(actor_id=self.app.user['id'])['finances'], 1)
+        self.assertEqual(get_record('finances', identifier, actor_id=self.app.user['id'])['amount'], 2500)
 
     def test_invalid_form_shows_message_without_writing(self):
         from backend.dashboard import dashboard_counts
@@ -116,7 +116,7 @@ class ModernWidgetTests(unittest.TestCase):
         self.app.form_save_button.invoke()
         self.drain_tasks()
         self.assertIn('entier positif', self.app.form_status.cget('text'))
-        self.assertEqual(dashboard_counts()['finances'], 0)
+        self.assertEqual(dashboard_counts(actor_id=self.app.user['id'])['finances'], 0)
 
     def test_dashboard_charts_follow_theme_and_are_released_on_navigation(self):
         self.sign_in_test_user()
@@ -133,9 +133,10 @@ class ModernWidgetTests(unittest.TestCase):
 
     def test_live_search_keeps_criteria_after_form_navigation(self):
         from backend.management import save_record
-        for name in ('Alice', 'Bob'):
-            save_record('employees',dict(fullname=name,email='test@example.com',phone='00123',gender='Femme'))
         self.sign_in_test_user()
+        for name in ('Alice', 'Bob'):
+            save_record('employees',dict(fullname=name,email='test@example.com',phone='00123',gender='Femme'),
+                        actor_id=self.app.user['id'])
         self.app.navigate('employees')
         self.drain_tasks()
         self.app.search_entry.insert(0, 'alice')
@@ -152,9 +153,10 @@ class ModernWidgetTests(unittest.TestCase):
 
     def test_search_status_filter_and_reset(self):
         from backend.management import save_record
-        for state in ('Payée','Non Payée'):
-            save_record('finances',dict(reason='Loyer',amount='1000',date='2026-10-09',status=state,type='Décaissement'))
         self.sign_in_test_user()
+        for state in ('Payée','Non Payée'):
+            save_record('finances',dict(reason='Loyer',amount='1000',date='2026-10-09',status=state,type='Décaissement'),
+                        actor_id=self.app.user['id'])
         self.app.navigate('finances')
         self.drain_tasks()
         self.app.status_filter.set('Payée')
@@ -165,3 +167,84 @@ class ModernWidgetTests(unittest.TestCase):
         self.app.refresh_search()
         self.drain_tasks()
         self.assertEqual(len(self.app.record_tree.get_children()), 2)
+
+    def test_employee_shell_has_only_authorized_views_and_readonly_actions(self):
+        from backend.auth import register_user
+        self.sign_in_test_user()
+        identifier = register_user('Viewer','Secret123!','viewer@example.com','002','Femme')
+        self.app.user = {'id':identifier,'fullname':'Viewer'}
+        self.app.show_shell()
+        self.drain_tasks()
+        self.assertNotIn('finances',self.app.navigation)
+        self.assertNotIn('employees',self.app.navigation)
+        self.assertNotIn('users',self.app.navigation)
+        self.assertEqual(len(self.app.chart_canvases),1)
+        with patch('ui.application.messagebox.showerror') as error:
+            self.app.navigate('finances')
+            error.assert_called_once()
+        self.assertEqual(self.app.current_view,'home')
+        self.app.navigate('clients')
+        self.drain_tasks()
+        self.assertEqual(self.app.record_add_button.cget('state'),'disabled')
+        self.assertEqual(self.app.record_delete_button.cget('state'),'disabled')
+        self.assertEqual(self.app.excel_export_button.cget('state'),'normal')
+
+    def test_export_button_writes_filtered_rows_and_cancel_writes_nothing(self):
+        from backend.management import save_record
+        from openpyxl import load_workbook
+        self.sign_in_test_user()
+        for name in ('Alice','Bob'):
+            save_record('employees',dict(fullname=name,email='test@example.com',phone='00123',gender='Femme'),
+                        actor_id=self.app.user['id'])
+        self.app.navigate('employees')
+        self.drain_tasks()
+        self.app.search_entry.insert(0,'alice')
+        self.drain_tasks()
+        target = Path(os.environ['PERSONAL_MANAGER_DB']).with_suffix('.xlsx')
+        with patch('ui.application.filedialog.asksaveasfilename',return_value=str(target)):
+            self.app.excel_export_button.invoke()
+            self.drain_tasks()
+        book = load_workbook(target)
+        try:
+            self.assertEqual(book.active.max_row,5)
+            self.assertEqual(book.active['B5'].value,'Alice')
+        finally:
+            book.close()
+        with patch('ui.application.filedialog.asksaveasfilename',return_value=''):
+            self.app.pdf_export_button.invoke()
+        self.assertFalse(target.with_suffix('.pdf').exists())
+
+    def test_today_and_overdue_rows_receive_alert_tags(self):
+        from datetime import date,timedelta
+        from backend.management import save_record
+        self.sign_in_test_user()
+        today = date.today()
+        save_record('events',dict(meet_with='Client',gender='Homme',phone='00123',place='Bureau',
+                    event_status='Non Effectué',reason_event='Réunion',eventdate=today.isoformat(),hour_event='09:30'),
+                    actor_id=self.app.user['id'])
+        save_record('finances',dict(reason='Facture',amount='1000',date=(today-timedelta(days=2)).isoformat(),
+                    status='Non Payée',type='Encaissement',due_date=(today-timedelta(days=1)).isoformat()),
+                    actor_id=self.app.user['id'])
+        self.app.navigate('home')
+        self.drain_tasks()
+        self.assertIn('Factures en retard : 1',self.app.alert_label.cget('text'))
+        for key,tag in (('events','today'),('finances','overdue')):
+            self.app.navigate(key)
+            self.drain_tasks()
+            row = self.app.record_tree.get_children()[0]
+            self.assertIn(tag,self.app.record_tree.item(row,'tags'))
+
+    def test_admin_assigns_role_in_permissions_view(self):
+        from backend.auth import register_user
+        from backend.permissions import current_user
+        self.sign_in_test_user()
+        identifier = register_user('NewUser','Secret123!','new@example.com','002','Homme')
+        self.app.navigate('users')
+        self.drain_tasks()
+        self.assertEqual(len(self.app.user_tree.get_children()),2)
+        self.app.user_tree.selection_set(str(identifier))
+        self.app.role_choice.set('Administrateur')
+        with patch('ui.application.messagebox.askyesno',return_value=True):
+            self.app.role_save_button.invoke()
+            self.drain_tasks()
+        self.assertEqual(current_user(identifier)['role'],'admin')
