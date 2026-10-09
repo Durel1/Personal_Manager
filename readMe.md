@@ -21,8 +21,14 @@ recherche, exports Excel/PDF et permissions vérifiées dans le backend.
 ## Aperçu
 
 <!-- screenshots:start -->
-Les captures du vrai logiciel se génèrent sur Windows avec une base de démonstration
-isolée : `python tools/capture_screenshots.py`. L’outil ajoute les images ici.
+Captures du vrai logiciel, avec des données de démonstration temporaires.
+
+![Tableau de bord](docs/images/dashboard.png)
+
+![Clients](docs/images/clients.png)
+
+![Finances et alertes](docs/images/finances.png)
+
 <!-- screenshots:end -->
 
 ## Lancer depuis les sources sous Windows
