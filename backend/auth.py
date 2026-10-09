@@ -32,7 +32,7 @@ def verify_password(password, stored_hash):
 
 
 def require_migrated_database(connection):
-    if connection.execute('PRAGMA user_version').fetchone()[0] != 2:
+    if connection.execute('PRAGMA user_version').fetchone()[0] not in (2, 3):
         raise AuthenticationError('La base doit être migrée avant toute authentification.')
 
 
@@ -51,11 +51,18 @@ def register_user(fullname, password, email, phone, gender):
         raise AuthenticationError('Utilisez au moins 8 caractères pour le mot de passe.')
     hashed = bcrypt.hashpw(encoded, bcrypt.gensalt(rounds=12)).decode('ascii')
     with connect_database() as connection:
+        connection.execute('BEGIN IMMEDIATE')
         require_migrated_database(connection)
         try:
-            cursor = connection.execute(
-                'INSERT INTO User (fullname,password,email,phone,gender) VALUES (?,?,?,?,?)',
-                (fullname, hashed, email, phone, gender))
+            if connection.execute('PRAGMA user_version').fetchone()[0] == 3:
+                first = connection.execute('SELECT COUNT(*) FROM User').fetchone()[0] == 0
+                cursor = connection.execute(
+                    'INSERT INTO User (fullname,password,email,phone,gender,role) VALUES (?,?,?,?,?,?)',
+                    (fullname, hashed, email, phone, gender, 'admin' if first else 'employee'))
+            else:
+                cursor = connection.execute(
+                    'INSERT INTO User (fullname,password,email,phone,gender) VALUES (?,?,?,?,?)',
+                    (fullname, hashed, email, phone, gender))
         except sqlite3.IntegrityError as error:
             raise AuthenticationError('Ce nom utilisateur est déjà utilisé ou les données sont invalides.') from error
         return cursor.lastrowid

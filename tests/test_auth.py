@@ -126,3 +126,13 @@ class AuthenticationTests(unittest.TestCase):
             c.execute('PRAGMA user_version = 1')
         with self.assertRaises(AuthenticationError):
             authenticate_user('Durel', 'Secret123!')
+
+    def test_first_signup_is_admin_and_following_signups_are_employees(self):
+        from backend.migrations import migrate_application
+        from backend.permissions import current_user
+        migrate_application()
+        first = self.register('First')
+        second = self.register('Second')
+        self.assertEqual(current_user(first)['role'], 'admin')
+        self.assertEqual(current_user(second)['role'], 'employee')
+        self.assertEqual(authenticate_user('Second', 'Secret123!')['id'], second)

@@ -14,7 +14,7 @@ def migrate_schema(path=None):
     with connect_database(path) as connection:
         connection.execute('BEGIN IMMEDIATE')
         version = connection.execute('PRAGMA user_version').fetchone()[0]
-        if version > 2:
+        if version > 3:
             raise MigrationError('Cette base provient d’une version plus récente de PersonalManager.')
         if version >= 1:
             return
@@ -65,3 +65,25 @@ def migrate_passwords(path=None):
             raise MigrationError('Des noms utilisateurs sont en double. Migration annulée.')
         connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS user_fullname_unique ON User(fullname)')
         connection.execute('PRAGMA user_version = 2')
+
+
+def migrate_application(path=None):
+    migrate_passwords(path)
+    migrate_roles(path)
+
+
+def migrate_roles(path=None):
+    """Preserve existing accounts' full privileges; new signups are employees."""
+    with connect_database(path) as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        version = connection.execute('PRAGMA user_version').fetchone()[0]
+        if version == 3:
+            return
+        if version != 2:
+            raise MigrationError('Migrez les mots de passe avant les rôles.')
+        connection.execute("ALTER TABLE User ADD COLUMN role TEXT NOT NULL DEFAULT 'admin' "
+                           "CHECK(role IN ('admin','employee'))")
+        columns = {row[1] for row in connection.execute('PRAGMA table_info(Finance)')}
+        if 'due_date' not in columns:
+            connection.execute('ALTER TABLE Finance ADD COLUMN due_date TEXT')
+        connection.execute('PRAGMA user_version = 3')
