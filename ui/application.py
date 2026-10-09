@@ -13,6 +13,7 @@ from backend.migrations import MigrationError, migrate_application
 from backend.permissions import ROLE_LABELS, allowed, current_user, list_users, set_role
 from backend.alerts import alerts_snapshot, record_alert
 from backend.reporting import export_report
+from backend.diagnostics import record_error
 from backend.management import delete_record, form_fields, get_record, initial_values, save_record
 from backend.statistics import statistics_snapshot
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -108,12 +109,17 @@ class PersonalManager(ctk.CTk):
                 result = future.result()
             except (AuthenticationError, MigrationError, ValueError) as error:
                 report(str(error))
-            except sqlite3.Error:
+            except sqlite3.Error as error:
+                record_error('database',error)
                 report('La base de données est indisponible. Réessayez.')
-            except Exception:
+            except Exception as error:
+                record_error('worker',error)
                 report('Une erreur inattendue est survenue. Fermez puis relancez l’application.')
             else:
-                success(result)
+                try:
+                    success(result)
+                except Exception as error:
+                    self.report_callback_exception(type(error),error,error.__traceback__)
 
         def report(text):
             if error_callback is not None:
@@ -127,6 +133,11 @@ class PersonalManager(ctk.CTk):
 
         poll_id = [self.after(50, poll)]
         self.polls.add(poll_id[0])
+
+    def report_callback_exception(self, exception_type, error, traceback):
+        record_error('ui_callback',error)
+        messagebox.showerror('PersonalManager',
+            'Une erreur d’affichage est survenue. Actualisez la page ou relancez l’application.',parent=self)
 
     def close(self):
         self.cancel_search()

@@ -72,6 +72,14 @@ class ModernWidgetTests(unittest.TestCase):
         self.drain_tasks()
         self.assertEqual(completed, [])
 
+    def test_failed_success_callback_displays_error_instead_of_crashing(self):
+        def broken(_):
+            raise RuntimeError('simulated callback failure')
+        with patch('ui.application.messagebox.showerror') as dialog, patch('ui.application.record_error'):
+            self.app.run_task(lambda: 42,broken)
+            self.drain_tasks()
+            dialog.assert_called_once()
+
     def sign_in_test_user(self):
         from backend.auth import register_user
         identifier = register_user('FormTest', 'Secret123!', 'test@example.com', '00123', 'Homme')
