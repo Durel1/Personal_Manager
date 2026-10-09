@@ -1,5 +1,5 @@
 """Alternate entry point for the modern application; main.py is now the default."""
-from ui.application import PersonalManager
+from main import main
 
 if __name__ == '__main__':
-    PersonalManager().mainloop()
+    raise SystemExit(main())

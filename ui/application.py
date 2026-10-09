@@ -13,10 +13,12 @@ from backend.migrations import MigrationError, migrate_application
 from backend.permissions import ROLE_LABELS, allowed, current_user, list_users, set_role
 from backend.alerts import alerts_snapshot, record_alert
 from backend.reporting import export_report
+from backend.diagnostics import record_error
 from backend.management import delete_record, form_fields, get_record, initial_values, save_record
 from backend.statistics import statistics_snapshot
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from ui.charts import event_figure, spending_figure
+from ui.lifecycle import cancel_pending_callbacks
 
 BACKGROUND = ('#F3F6FB', '#0B1220')
 SURFACE = ('#FFFFFF', '#142033')
@@ -45,6 +47,7 @@ class PersonalManager(ctk.CTk):
         self.current_view = None
         self.list_filters = {}
         self.search_timer = None
+        self._closed = False
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -108,12 +111,17 @@ class PersonalManager(ctk.CTk):
                 result = future.result()
             except (AuthenticationError, MigrationError, ValueError) as error:
                 report(str(error))
-            except sqlite3.Error:
+            except sqlite3.Error as error:
+                record_error('database',error)
                 report('La base de données est indisponible. Réessayez.')
-            except Exception:
+            except Exception as error:
+                record_error('worker',error)
                 report('Une erreur inattendue est survenue. Fermez puis relancez l’application.')
             else:
-                success(result)
+                try:
+                    success(result)
+                except Exception as error:
+                    self.report_callback_exception(type(error),error,error.__traceback__)
 
         def report(text):
             if error_callback is not None:
@@ -128,13 +136,28 @@ class PersonalManager(ctk.CTk):
         poll_id = [self.after(50, poll)]
         self.polls.add(poll_id[0])
 
+    def report_callback_exception(self, exception_type, error, traceback):
+        record_error('ui_callback',error)
+        messagebox.showerror('PersonalManager',
+            'Une erreur d’affichage est survenue. Actualisez la page ou relancez l’application.',parent=self)
+
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.generation += 1
         self.cancel_search()
         self.cleanup_charts()
         for identifier in self.polls:
             self.after_cancel(identifier)
+        self.polls.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
-        self.destroy()
+        cancel_pending_callbacks(self)
+        try:
+            self.destroy()
+        finally:
+            # Disposal of library widgets may schedule additional idle work.
+            cancel_pending_callbacks(self)
 
     def auth_layout(self, title, subtitle):
         self.replace_root()

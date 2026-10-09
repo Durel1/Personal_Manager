@@ -72,6 +72,31 @@ class ModernWidgetTests(unittest.TestCase):
         self.drain_tasks()
         self.assertEqual(completed, [])
 
+    def test_close_cancels_library_and_child_widget_callbacks(self):
+        completed = []
+        errors = []
+        self.app.screen.after(1000,lambda: completed.append('child'))
+        self.app.after_idle(lambda: completed.append('idle'))
+        self.app.tk.createcommand('pm_test_bgerror',errors.append)
+        self.app.tk.eval('proc bgerror {message} {pm_test_bgerror $message}')
+        try:
+            self.app.close()
+            self.assertEqual(self.app.tk.splitlist(self.app.tk.call('after','info')), ())
+            self.app.tk.call('update')
+            self.assertEqual(completed, [])
+            self.assertEqual(errors, [])
+            self.app.close()  # Repeated close is harmless.
+        finally:
+            self.app.tk.deletecommand('pm_test_bgerror')
+
+    def test_failed_success_callback_displays_error_instead_of_crashing(self):
+        def broken(_):
+            raise RuntimeError('simulated callback failure')
+        with patch('ui.application.messagebox.showerror') as dialog, patch('ui.application.record_error'):
+            self.app.run_task(lambda: 42,broken)
+            self.drain_tasks()
+            dialog.assert_called_once()
+
     def sign_in_test_user(self):
         from backend.auth import register_user
         identifier = register_user('FormTest', 'Secret123!', 'test@example.com', '00123', 'Homme')
