@@ -36,19 +36,48 @@ def dashboard_counts():
                 for key, module in MODULES.items()}
 
 
-def list_records(module_key, page=0, page_size=25):
-    module = MODULES[module_key]  # Identifiers come from this fixed catalog, never user input.
+SEARCH_COLUMNS = {
+    'employees': ('fullname', 'email', 'phone'),
+    'clients': ('fullname', 'email', 'phone', 'city', 'sector', 'quater'),
+    'events': ('meet_with', 'phone', 'place', 'reason_event'),
+    'finances': ('reason',),
+}
+FILTER_OPTIONS = {
+    'events': ('Tous', 'Non Effectué', 'Effectué'),
+    'finances': ('Tous', 'Non Payée', 'Payée'),
+}
+
+
+def list_records(module_key, page=0, page_size=25, search='', status=None):
+    module = MODULES[module_key]
     if not isinstance(page, int) or page < 0:
         raise ValueError('Invalid page')
     if not isinstance(page_size, int) or not 1 <= page_size <= 100:
         raise ValueError('Invalid page size')
+    if not isinstance(search, str) or len(search) > 200:
+        raise ValueError('La recherche ne doit pas dépasser 200 caractères.')
+    if status not in (None, 'Tous') and status not in FILTER_OPTIONS.get(module_key, ()):
+        raise ValueError('Filtre de statut invalide.')
+    clauses, parameters = [], []
+    term = search.strip().casefold()
+    if term:
+        escaped = term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        clauses.append('('+ ' OR '.join(f"CASEFOLD(\"{column}\") LIKE ? ESCAPE '\\'"
+                                        for column in SEARCH_COLUMNS[module_key])+')')
+        parameters.extend(['%'+escaped+'%']*len(SEARCH_COLUMNS[module_key]))
+    if status not in (None, 'Tous'):
+        column = 'event_status' if module_key == 'events' else 'status'
+        clauses.append(f'TRIM("{column}")=?')
+        parameters.append(status)
+    where = ' WHERE '+' AND '.join(clauses) if clauses else ''
     columns = ', '.join(f'"{column}"' for column in module.columns)
     with connect_database() as connection:
+        connection.create_function('CASEFOLD', 1, lambda value: str(value or '').casefold(), deterministic=True)
         connection.execute('BEGIN')
-        total = connection.execute(f'SELECT COUNT(*) FROM "{module.table}"').fetchone()[0]
+        total = connection.execute(f'SELECT COUNT(*) FROM "{module.table}"'+where, parameters).fetchone()[0]
         rows = connection.execute(
-            f'SELECT {columns} FROM "{module.table}" ORDER BY id DESC LIMIT ? OFFSET ?',
-            (page_size, page * page_size)).fetchall()
+            f'SELECT {columns} FROM "{module.table}"'+where+' ORDER BY id DESC LIMIT ? OFFSET ?',
+            (*parameters, page_size, page * page_size)).fetchall()
     return rows, total
 
 
