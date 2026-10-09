@@ -1,108 +1,148 @@
-# PersonalManager — version moderne (phase 3)
+# PersonalManager
 
-Application de gestion locale en Python, SQLite et CustomTkinter : employés,
-clients, rendez-vous, finances, graphiques, recherche, exports Excel/PDF,
-permissions administrateur/employé et alertes.
+Application de gestion locale pour petites structures : équipes, clients,
+rendez-vous et transactions financières dans une fenêtre CustomTkinter.
 
-Lancement sous Windows, avec un environnement virtuel déjà créé :
+Le projet a été modernisé progressivement : migrations SQLite sans suppression
+des données, mots de passe bcrypt, tableau de bord Matplotlib, formulaires validés,
+recherche, exports Excel/PDF et permissions vérifiées dans le backend.
+
+## Fonctionnalités
+
+- Tableau de bord avec compteurs, rendez-vous par mois et dépenses payées par motif.
+- Création, modification et suppression des données métier par un administrateur.
+- Recherche dynamique, filtres de statut et pagination cohérente.
+- Exports Excel/PDF de tous les résultats filtrés, jusqu’à 10 000 lignes.
+- Employés en consultation/export des clients et rendez-vous ; finances réservées
+ aux administrateurs. Attribution des rôles et protection du dernier administrateur.
+- Alertes pour les rendez-vous du jour et les factures non payées avec échéance dépassée.
+- Thèmes clair/sombre, messages d’erreur et journal local sans valeurs sensibles.
+
+## Aperçu
+
+<!-- screenshots:start -->
+Les captures du vrai logiciel se génèrent sur Windows avec une base de démonstration
+isolée : `python tools/capture_screenshots.py`. L’outil ajoute les images ici.
+<!-- screenshots:end -->
+
+## Lancer depuis les sources sous Windows
+
+Utiliser un Python standard (pas la variante free-threaded). Les tests CI
+utilisent Python 3.11 ; le développement Windows a aussi été vérifié en 3.14.
+Tkinter et SQLite sont fournis avec Python : ne pas tenter de les installer via pip.
 
 ```bat
+py -V:3.14 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe main.py
 ```
 
-Pour installer aussi les dépendances de test et lancer les vérifications :
+Si Python 3.14 n’est pas installé, utiliser la version disponible avec `py --list`
+et adapter la première commande. L’activation de l’environnement n’est pas requise.
+
+Le premier compte d’une base vide est administrateur. Les comptes suivants sont
+employés ; un administrateur peut ensuite leur attribuer des droits.
+
+## Exécutable Windows
+
+La construction PyInstaller est configurée, mais le binaire doit être construit
+et validé sur Windows avant publication. Aucun exécutable précompilé n’est inclus
+à ce stade dans ce dépôt.
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm PersonalManager.spec
+```
+
+Le résultat est `dist\PersonalManager\PersonalManager.exe`. Distribuer **tout le
+dossier PersonalManager**, avec son répertoire `_internal`, dans une archive ZIP.
+Après extraction, un double-clic sur l’exécutable lance l’application sans Python.
+Le mode dossier permet de conserver les ressources graphiques et polices incluses.
+
+Vérifier les dépendances embarquées avant la revue visuelle :
+
+```bat
+start /wait "" "dist\PersonalManager\PersonalManager.exe" --self-test-result "%TEMP%\personalmanager-build-check.json"
+```
+
+Le fichier JSON doit contenir `"ok": true`. Ce contrôle utilise une base temporaire,
+vérifie bcrypt, SQLite, Matplotlib, Excel et les polices PDF. Il ne remplace pas
+un test interactif de la fenêtre et des formulaires.
+
+## Données et diagnostic
+
+| Exécution | Base utilisée par défaut |
+| --- | --- |
+| Sources | `projet_stage.db` dans le dossier du projet |
+| Exécutable Windows | `%LOCALAPPDATA%\PersonalManager\projet_stage.db` |
+| Variable `PERSONAL_MANAGER_DB` | Chemin choisi explicitement, dans les deux modes |
+
+Les données restent locales et les migrations sont transactionnelles. L’exécutable
+ne contient aucune base personnelle. Fermer l’application avant de copier une base.
+
+Pour tester sans modifier la base habituelle :
+
+```bat
+copy projet_stage.db "%TEMP%\personalmanager-demo.db"
+set "PERSONAL_MANAGER_DB=%TEMP%\personalmanager-demo.db"
+.venv\Scripts\python.exe main.py
+set "PERSONAL_MANAGER_DB="
+```
+
+Les diagnostics Windows se trouvent dans
+`%LOCALAPPDATA%\PersonalManager\logs\application.log`. Ils contiennent les types
+d’erreur et les noms de fonctions/lignes, sans le texte des exceptions, les mots
+de passe ou les paramètres SQL.
+
+## Architecture
+
+```text
+main.py                  lancement et contrôle de l’exécutable
+backend/connection.py    connexions courtes, transactions et fermeture explicite
+backend/migrations.py    versions de schéma et migrations des comptes
+backend/auth.py          validation d’inscription et bcrypt
+backend/permissions.py   droits relus en base, gestion des rôles
+backend/management.py    validation et opérations métier
+backend/dashboard.py     recherche, pagination et instantanés d’export
+backend/statistics.py    calculs sans dépendance aux widgets
+backend/alerts.py        alertes à partir des dates explicites
+backend/reporting.py     rapports Excel/PDF et écriture atomique
+ui/application.py        fenêtre unique, navigation, formulaires et travail en arrière-plan
+ui/charts.py             figures Matplotlib
+tools/                   contrôles de distribution et captures
+tests/                   tests backend, rapports et widgets Windows
+```
+
+Les requêtes et bcrypt s’exécutent dans un fil de travail. Seul le fil Tkinter
+modifie les widgets ; les résultats obsolètes sont rejetés après navigation.
+
+## Tests et méthode de développement
 
 ```bat
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .venv\Scripts\python.exe tests/run_tests.py
 ```
 
-Le guide [Phase 3](docs/PHASE_3.md) explique les rôles, les migrations et les
-vérifications à faire sur une copie de la base. Les guides précédents se trouvent
-dans `docs/`. La création d’un exécutable et le README final avec captures restent
-prévus pour la phase 4.
+La suite comporte **97 tests**. Le lanceur refuse les tests ignorés. Les tests
+de widgets nécessitent un bureau graphique. Les workflows GitHub comprennent
+les tests Windows et une construction manuelle avec contrôle du binaire.
 
-## Documentation historique
+L’historique distingue corrections du schéma, connexions, authentification,
+interface, opérations métier, graphiques, recherche, rôles, rapports et livraison.
+Les explications pédagogiques et les procédures de validation sont dans
+[le guide de phase 4](docs/PHASE_4.md) et les guides précédents du dossier `docs/`.
 
-Le contenu ci-dessous décrit l’application originale et ne constitue plus le
-mode d’installation de la version moderne.
+## Limites actuelles
 
-\# PersonalManager
+- Application mono-poste : les permissions ne chiffrent pas le fichier SQLite et
+ les données métier sont partagées entre comptes autorisés.
+- Montants entiers, sans devise stockée ; pas de gestion des centimes.
+- Les dates historiques ambiguës doivent être corrigées explicitement.
+- L’échéance financière est facultative ; une facture sans échéance n’est pas
+ déclarée arbitrairement en retard.
+- La réinitialisation du mot de passe et les notifications système ne sont pas implémentées.
+- L’ancienne interface est conservée pour l’historique ; utiliser `main.py`.
 
-
-
-\*\*PersonalManager\*\* est une mini-application de gestion destinée aux petites entreprises. \[cite\_start]Elle permet de sécuriser et de faciliter les opérations quotidiennes comme la gestion du personnel, des clients, des rendez-vous et des finances\[cite: 109, 110].
-
-
-
-\## 📋 Fonctionnalités
-
-
-
-L'application offre quatre modules principaux :
-
-
-
-\* \[cite\_start]\*\*👥 Gestion des employés :\*\* Enregistrer de nouveaux employés, les supprimer et consulter la liste du personnel\[cite: 112, 113, 114, 115].
-
-\* \[cite\_start]\*\*📅 Gestion des Évènements (Rendez-vous) :\*\* Enregistrer, supprimer et consulter la liste des rendez-vous de l'entreprise\[cite: 116, 117, 118, 119].
-
-\* \[cite\_start]\*\*🤝 Gestion des clients :\*\* Enregistrer, supprimer et consulter la liste des clients\[cite: 120, 121, 122, 123].
-
-\* \[cite\_start]\*\*💰 Gestion des finances :\*\* Enregistrer les factures de transactions et consulter l'état financier\[cite: 124, 125, 126].
-
-
-
-\## 🛠 Technologies utilisées
-
-
-
-\* \[cite\_start]\*\*Langage :\*\* Python 3.11.0 \[cite: 127]
-
-\* \[cite\_start]\*\*Base de données :\*\* Sqlite3 \[cite: 127]
-
-\* \[cite\_start]\*\*Interface Graphique :\*\* Tkinter \[cite: 128]
-
-
-
-\## ⚙️ Installation et Prérequis
-
-
-
-\### 1. Prérequis
-
-\[cite\_start]Il est recommandé d'utiliser l'IDE \*\*Visual Studio Code\*\* avec les extensions suivantes : Pylance, Python, Python Debugger et Code Runner\[cite: 136, 137].
-
-
-
-\### 2. Installation des dépendances
-
-\[cite\_start]Assurez-vous d'avoir Python installé\[cite: 132]. \[cite\_start]Ouvrez votre invite de commande et exécutez les commandes suivantes pour installer les modules nécessaires\[cite: 133]:
-
-
-
-bash
-
-pip install tkinter
-
-pip install sqlite3
-
-
-
-\## 🚀 Utilisation
-
-Ouvrez le dossier du projet dans Visual Studio Code.
-
-
-
-Exécutez le fichier main.py (via l'extension Code Runner par exemple).
-
-
-
-Au premier lancement, la base de données se créera automatiquement.
-
-
-
-Une interface de connexion apparaîtra. Vous pourrez vous connecter ou créer un compte pour accéder aux fonctionnalités.
-
+Ne pas publier sa base personnelle ou ses caches. Le guide de phase 4 fournit
+un outil qui retire les fichiers déjà suivis par Git tout en les conservant sur
+le disque. Cela ne réécrit pas l’ancien historique.
