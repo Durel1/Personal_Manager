@@ -1,3 +1,33 @@
+# PersonalManager — version moderne (phase 3)
+
+Application de gestion locale en Python, SQLite et CustomTkinter : employés,
+clients, rendez-vous, finances, graphiques, recherche, exports Excel/PDF,
+permissions administrateur/employé et alertes.
+
+Lancement sous Windows, avec un environnement virtuel déjà créé :
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe main.py
+```
+
+Pour installer aussi les dépendances de test et lancer les vérifications :
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.venv\Scripts\python.exe tests/run_tests.py
+```
+
+Le guide [Phase 3](docs/PHASE_3.md) explique les rôles, les migrations et les
+vérifications à faire sur une copie de la base. Les guides précédents se trouvent
+dans `docs/`. La création d’un exécutable et le README final avec captures restent
+prévus pour la phase 4.
+
+## Documentation historique
+
+Le contenu ci-dessous décrit l’application originale et ne constitue plus le
+mode d’installation de la version moderne.
+
 \# PersonalManager
 
 

@@ -6,6 +6,7 @@ from datetime import date
 
 from backend.connection import connect_database
 from backend.dashboard import MODULES
+from backend.permissions import allowed, require_access
 
 
 def month_keys(today, months=6):
@@ -39,17 +40,18 @@ def positive_integer_amount(value):
     return amount if 1 <= amount <= 9223372036854775807 else None
 
 
-def statistics_snapshot(today=None):
+def statistics_snapshot(today=None, *, actor_id=None):
     today = today or date.today()
     months = month_keys(today)
     monthly = dict.fromkeys(months, 0)
     with connect_database() as connection:
         connection.execute('BEGIN')
+        role = require_access(connection, actor_id, 'home')
         counts = {key: connection.execute(f'SELECT COUNT(*) FROM "{module.table}"').fetchone()[0]
-                  for key, module in MODULES.items()}
+                  for key, module in MODULES.items() if allowed(role, key)}
         events = connection.execute('SELECT eventdate FROM Event').fetchall()
         expenses = connection.execute("SELECT reason,amount FROM Finance WHERE TRIM(type)=? AND TRIM(status)=?",
-                                      ('Décaissement', 'Payée')).fetchall()
+                                      ('Décaissement', 'Payée')).fetchall() if allowed(role, 'finances') else []
     invalid_dates = 0
     outside_period = 0
     for (value,) in events:

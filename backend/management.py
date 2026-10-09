@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from backend.connection import connect_database
 from backend.dashboard import MODULES
+from backend.permissions import require_access
 
 
 class ManagementError(ValueError):
@@ -17,6 +18,7 @@ class Field:
     label: str
     kind: str = 'text'
     choices: tuple = ()
+    required: bool = True
 
 
 CHOICES = {
@@ -26,36 +28,40 @@ CHOICES = {
     'type': ('Encaissement', 'Décaissement'),
 }
 KINDS = {'email': 'email', 'phone': 'phone', 'amount': 'amount',
-         'date': 'date', 'eventdate': 'date', 'hour_event': 'time'}
+         'date': 'date', 'eventdate': 'date', 'due_date': 'date', 'hour_event': 'time'}
 LABELS = {'amount': 'Montant (nombre entier)', 'date': 'Date (AAAA-MM-JJ)',
-          'eventdate': 'Date (AAAA-MM-JJ)', 'hour_event': 'Heure (HH:MM)'}
+          'eventdate': 'Date (AAAA-MM-JJ)', 'hour_event': 'Heure (HH:MM)',
+          'due_date': 'Échéance (AAAA-MM-JJ, facultative)'}
 
 
 def form_fields(module_key):
     module = MODULES[module_key]
     return tuple(Field(column, LABELS.get(column, heading),
                        'choice' if column in CHOICES else KINDS.get(column, 'text'),
-                       CHOICES.get(column, ()))
+                       CHOICES.get(column, ()), required=column != 'due_date')
                  for column, heading in zip(module.columns[1:], module.headings[1:]))
 
 
 def initial_values(module_key):
     return {field.key: (field.choices[0] if field.choices else
-                       date.today().isoformat() if field.kind == 'date' else
+                       date.today().isoformat() if field.kind == 'date' and field.required else
                        '09:00' if field.kind == 'time' else '')
             for field in form_fields(module_key)}
 
 
 def validate_values(module_key, values):
     fields = form_fields(module_key)
-    if set(values) != {field.key for field in fields}:
+    if not {field.key for field in fields if field.required} <= set(values) or not set(values) <= {field.key for field in fields}:
         raise ManagementError('Le formulaire est incomplet ou contient des champs inconnus.')
     cleaned = {}
     for field in fields:
-        value = values[field.key]
+        value = values.get(field.key, '')
         if not isinstance(value, str):
             raise ManagementError(f'{field.label} : valeur invalide.')
         value = value.strip()
+        if not value and not field.required:
+            cleaned[field.key] = None
+            continue
         if not value:
             raise ManagementError(f'{field.label} : veuillez remplir ce champ.')
         if len(value) > 500 or '\x00' in value:
@@ -83,6 +89,8 @@ def validate_values(module_key, values):
                 raise ManagementError('L’heure doit être comprise entre 00:00 et 23:59.')
             value = f'{int(match[1]):02d}:{int(match[2]):02d}'
         cleaned[field.key] = value
+    if module_key == 'finances' and cleaned['due_date'] and cleaned['due_date'] < cleaned['date']:
+        raise ManagementError('L’échéance ne peut pas précéder la date de la transaction.')
     return cleaned
 
 
@@ -92,11 +100,13 @@ def checked_id(identifier):
     return identifier
 
 
-def get_record(module_key, identifier):
+def get_record(module_key, identifier, *, actor_id=None):
     module = MODULES[module_key]
     identifier = checked_id(identifier)
     columns = ', '.join(f'"{column}"' for column in module.columns)
     with connect_database() as connection:
+        connection.execute('BEGIN')
+        require_access(connection, actor_id, module_key)
         row = connection.execute(f'SELECT {columns} FROM "{module.table}" WHERE id=?',
                                  (identifier,)).fetchone()
     if row is None:
@@ -104,12 +114,14 @@ def get_record(module_key, identifier):
     return dict(zip(module.columns, row))
 
 
-def save_record(module_key, values, identifier=None):
+def save_record(module_key, values, identifier=None, *, actor_id=None):
     module = MODULES[module_key]
     cleaned = validate_values(module_key, values)
     columns = module.columns[1:]
     parameters = tuple(cleaned[column] for column in columns)
     with connect_database() as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        require_access(connection, actor_id, module_key, 'write')
         if identifier is None:
             names = ', '.join(f'"{column}"' for column in columns)
             placeholders = ', '.join('?' for _ in columns)
@@ -124,10 +136,12 @@ def save_record(module_key, values, identifier=None):
         return identifier
 
 
-def delete_record(module_key, identifier):
+def delete_record(module_key, identifier, *, actor_id=None):
     module = MODULES[module_key]
     identifier = checked_id(identifier)
     with connect_database() as connection:
+        connection.execute('BEGIN IMMEDIATE')
+        require_access(connection, actor_id, module_key, 'delete')
         cursor = connection.execute(f'DELETE FROM "{module.table}" WHERE id=?', (identifier,))
         if cursor.rowcount != 1:
             raise ManagementError('Cet enregistrement n’existe plus. Actualisez la liste.')

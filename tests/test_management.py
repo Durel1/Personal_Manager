@@ -104,7 +104,7 @@ class ManagementTests(unittest.TestCase):
 
     def test_legacy_invalid_date_is_preserved_until_explicit_edit(self):
         with connect_database() as c:
-            c.execute('INSERT INTO Finance VALUES (1,?,?,?,?,?)',
+            c.execute('INSERT INTO Finance (id,reason,amount,date,status,type) VALUES (1,?,?,?,?,?)',
                       ('Legacy', 1000, '10/9/26', 'Non Payée', 'Encaissement'))
         self.assertEqual(get_record('finances', 1)['date'], '10/9/26')
         with self.assertRaises(ManagementError):
@@ -112,5 +112,6 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual(get_record('finances', 1)['date'], '10/9/26')
 
     def test_defaults_match_form_fields(self):
-        self.assertEqual(set(initial_values('finances')), set(sample('finances')))
+        self.assertEqual(set(initial_values('finances')), set(sample('finances')) | {'due_date'})
+        self.assertEqual(initial_values('finances')['due_date'], '')
         self.assertEqual(initial_values('finances')['status'], 'Non Payée')

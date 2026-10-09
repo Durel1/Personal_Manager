@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS Finance (
     amount integer NOT NULL,
     date text NOT NULL,
     status text NOT NULL,
-    type text NOT NULL
+    type text NOT NULL,
+    due_date TEXT
     )"""
 
 
