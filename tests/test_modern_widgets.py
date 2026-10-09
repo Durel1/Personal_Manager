@@ -13,6 +13,11 @@ AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ('bcrypt'
 @unittest.skipUnless(AVAILABLE, 'bcrypt/customtkinter/matplotlib unavailable: modern widget checks pending')
 class ModernWidgetTests(unittest.TestCase):
     def setUp(self):
+        # Unattended tests must never wait for a user to dismiss an error dialog.
+        dialogs = patch('ui.application.messagebox.showerror')
+        self.error_dialog = dialogs.start()
+        self.addCleanup(dialogs.stop)
+        self.callback_errors = []
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         env = patch.dict(os.environ, {'PERSONAL_MANAGER_DB': str(Path(directory.name)/'widgets.db')})
@@ -21,6 +26,13 @@ class ModernWidgetTests(unittest.TestCase):
         from ui.application import PersonalManager
         self.app = PersonalManager()
         self.addCleanup(self.shutdown)
+        original_report = self.app.report_callback_exception
+
+        def capture_callback_error(exception_type, error, traceback):
+            self.callback_errors.append((error, traceback))
+            original_report(exception_type, error, traceback)
+
+        self.app.report_callback_exception = capture_callback_error
         self.wait_for(lambda: self.app.generation >= 2)
 
     def shutdown(self):
@@ -32,6 +44,9 @@ class ModernWidgetTests(unittest.TestCase):
         deadline = time.monotonic()+5
         while time.monotonic() < deadline:
             self.app.update()
+            if self.callback_errors:
+                error, traceback = self.callback_errors.pop(0)
+                raise error.with_traceback(traceback)
             if condition():
                 return
             time.sleep(0.01)
@@ -94,7 +109,8 @@ class ModernWidgetTests(unittest.TestCase):
             raise RuntimeError('simulated callback failure')
         with patch('ui.application.messagebox.showerror') as dialog, patch('ui.application.record_error'):
             self.app.run_task(lambda: 42,broken)
-            self.drain_tasks()
+            with self.assertRaisesRegex(RuntimeError, 'simulated callback failure'):
+                self.drain_tasks()
             dialog.assert_called_once()
 
     def sign_in_test_user(self):
