@@ -38,7 +38,7 @@ class ModernWidgetTests(unittest.TestCase):
         self.fail('Modern UI operation did not finish within five seconds')
 
     def drain_tasks(self):
-        self.wait_for(lambda: not self.app.polls)
+        self.wait_for(lambda: not self.app.polls and self.app.search_timer is None)
 
     def test_login_and_registration_render_in_one_root(self):
         root_id = str(self.app)
@@ -130,3 +130,38 @@ class ModernWidgetTests(unittest.TestCase):
         self.app.navigate('home')
         self.drain_tasks()
         self.assertEqual(len(self.app.chart_canvases), 2)
+
+    def test_live_search_keeps_criteria_after_form_navigation(self):
+        from backend.management import save_record
+        for name in ('Alice', 'Bob'):
+            save_record('employees',dict(fullname=name,email='test@example.com',phone='00123',gender='Femme'))
+        self.sign_in_test_user()
+        self.app.navigate('employees')
+        self.drain_tasks()
+        self.app.search_entry.insert(0, 'alice')
+        self.drain_tasks()
+        rows = self.app.record_tree.get_children()
+        self.assertEqual(len(rows), 1)
+        identifier = int(rows[0])
+        self.app.show_form('employees',identifier)
+        self.drain_tasks()
+        self.app.navigate('employees')
+        self.drain_tasks()
+        self.assertEqual(self.app.search_entry.get(), 'alice')
+        self.assertEqual(len(self.app.record_tree.get_children()), 1)
+
+    def test_search_status_filter_and_reset(self):
+        from backend.management import save_record
+        for state in ('Payée','Non Payée'):
+            save_record('finances',dict(reason='Loyer',amount='1000',date='2026-10-09',status=state,type='Décaissement'))
+        self.sign_in_test_user()
+        self.app.navigate('finances')
+        self.drain_tasks()
+        self.app.status_filter.set('Payée')
+        self.app.refresh_search()
+        self.drain_tasks()
+        self.assertEqual(len(self.app.record_tree.get_children()), 1)
+        self.app.status_filter.set('Tous')
+        self.app.refresh_search()
+        self.drain_tasks()
+        self.assertEqual(len(self.app.record_tree.get_children()), 2)

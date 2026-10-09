@@ -3,12 +3,12 @@ import math
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from tkinter import TclError, messagebox, ttk
+from tkinter import StringVar, TclError, messagebox, ttk
 
 import customtkinter as ctk
 
 from backend.auth import AuthenticationError, authenticate_user, register_user
-from backend.dashboard import MODULES, dashboard_counts, list_records, user_profile
+from backend.dashboard import FILTER_OPTIONS, MODULES, list_records, user_profile
 from backend.migrations import MigrationError, migrate_passwords
 from backend.management import delete_record, form_fields, get_record, initial_values, save_record
 from backend.statistics import statistics_snapshot
@@ -40,6 +40,8 @@ class PersonalManager(ctk.CTk):
         self.user = None
         self.chart_canvases = []
         self.current_view = None
+        self.list_filters = {}
+        self.search_timer = None
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -66,6 +68,7 @@ class PersonalManager(ctk.CTk):
                              text_color=TEXT if secondary else '#FFFFFF', **kwargs)
 
     def replace_root(self):
+        self.cancel_search()
         self.cleanup_charts()
         self.generation += 1
         for widget in self.winfo_children():
@@ -74,13 +77,14 @@ class PersonalManager(ctk.CTk):
         self.screen.grid(row=0, column=0, sticky='nsew')
 
     def clear_content(self):
+        self.cancel_search()
         self.cleanup_charts()
         self.generation += 1
         for widget in self.content.winfo_children():
             widget.destroy()
         self.content.grid_rowconfigure(1, weight=0)
 
-    def run_task(self, action, success, button=None, error_label=None, fatal=False):
+    def run_task(self, action, success, button=None, error_label=None, fatal=False, error_callback=None):
         """Only the main Tk thread touches widgets; the worker handles SQLite/bcrypt."""
         generation = self.generation
         if button is not None:
@@ -109,7 +113,9 @@ class PersonalManager(ctk.CTk):
                 success(result)
 
         def report(text):
-            if error_label is not None:
+            if error_callback is not None:
+                error_callback(text)
+            elif error_label is not None:
                 error_label.configure(text=text)
             else:
                 messagebox.showerror('PersonalManager', text, parent=self)
@@ -120,6 +126,7 @@ class PersonalManager(ctk.CTk):
         self.polls.add(poll_id[0])
 
     def close(self):
+        self.cancel_search()
         self.cleanup_charts()
         for identifier in self.polls:
             self.after_cancel(identifier)
@@ -158,6 +165,7 @@ class PersonalManager(ctk.CTk):
         return entry
 
     def show_login(self, notice=''):
+        self.list_filters.clear()
         self.user = None
         card = self.auth_layout('Bienvenue', 'Connectez-vous à votre espace de travail.')
         name = self.field(card, 'Nom utilisateur')
@@ -287,6 +295,11 @@ class PersonalManager(ctk.CTk):
         self.label(bar, subtitle, muted=True).grid(row=1, column=0, sticky='w', pady=5)
         self.button(bar, action_label, refresh, secondary=True, width=110).grid(row=0, column=1, rowspan=2, padx=(10, 0))
 
+    def cancel_search(self):
+        if self.search_timer is not None:
+            self.after_cancel(self.search_timer)
+            self.search_timer = None
+
     def cleanup_charts(self):
         for canvas in self.chart_canvases:
             # TkAgg schedules resize/idle callbacks on its widget; cancel before destroying it.
@@ -362,36 +375,56 @@ class PersonalManager(ctk.CTk):
 
     def records(self, key, page, notice=''):
         module = MODULES[key]
-        self.heading(module.title, notice or 'Sélectionnez une ligne pour la modifier ou la supprimer.',
-                     lambda: self.navigate(key, page))
+        current_page = [page]
+        loading = [True]
+        serial = [0]
+        self.heading(module.title, notice or 'Recherchez, puis sélectionnez une ligne.',
+                     lambda: self.navigate(key, current_page[0]))
         self.content.grid_rowconfigure(1, weight=1)
         panel = ctk.CTkFrame(self.content, fg_color=SURFACE, corner_radius=12)
         panel.grid(row=1, column=0, sticky='nsew')
         panel.grid_columnconfigure(0, weight=1)
-        panel.grid_rowconfigure(1, weight=1)
+        panel.grid_rowconfigure(2, weight=1)
         toolbar = ctk.CTkFrame(panel, fg_color='transparent')
         toolbar.grid(row=0, column=0, columnspan=2, sticky='ew', padx=12, pady=(12, 0))
         self.button(toolbar, 'Ajouter', lambda: self.show_form(key), width=120).pack(side='left', padx=(0, 10))
+        filter_bar = ctk.CTkFrame(panel, fg_color='transparent')
+        filter_bar.grid(row=1, column=0, columnspan=2, sticky='ew', padx=12, pady=(12, 0))
+        filter_bar.grid_columnconfigure(0, weight=1)
+        saved_search, saved_status = self.list_filters.get(key, ('', 'Tous'))
+        search_text = StringVar(master=self, value=saved_search)
+        self.search_variable = search_text
+        search = ctk.CTkEntry(filter_bar, textvariable=search_text, height=40, font=(FONT, 14))
+        search.grid(row=0, column=0, sticky='ew')
+        self.search_entry = search
+        self.status_filter = None
+        choice = None
+        if key in FILTER_OPTIONS:
+            choice = ctk.CTkOptionMenu(filter_bar, values=list(FILTER_OPTIONS[key]), height=40,
+                                       width=155, font=(FONT, 13), fg_color=ACCENT, button_color=HOVER)
+            choice.grid(row=0, column=1, padx=(10, 0))
+            choice.set(saved_status)
+            self.status_filter = choice
         tree = ttk.Treeview(panel, columns=module.columns, show='headings', style='PM.Treeview')
-        tree.grid(row=1, column=0, sticky='nsew', padx=(12, 0), pady=(12, 0))
+        tree.grid(row=2, column=0, sticky='nsew', padx=(12, 0), pady=(12, 0))
         for column, title in zip(module.columns, module.headings):
             tree.heading(column, text=title)
             tree.column(column, width=65 if column == 'id' else 150, minwidth=60, stretch=False)
         vertical = ctk.CTkScrollbar(panel, command=tree.yview)
-        vertical.grid(row=1, column=1, sticky='ns', pady=12)
+        vertical.grid(row=2, column=1, sticky='ns', pady=12)
         horizontal = ctk.CTkScrollbar(panel, command=tree.xview, orientation='horizontal')
-        horizontal.grid(row=2, column=0, sticky='ew', padx=12, pady=6)
+        horizontal.grid(row=3, column=0, sticky='ew', padx=12, pady=6)
         tree.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
         self.record_tree = tree
 
         def selected_id():
             selected = tree.selection()
-            return int(selected[0]) if selected else None
+            return int(selected[0]) if selected and not loading[0] else None
 
         def edit_selected():
             identifier = selected_id()
             if identifier is not None:
-                self.show_form(key, identifier, page)
+                self.show_form(key, identifier, current_page[0])
 
         def remove_selected():
             identifier = selected_id()
@@ -402,18 +435,16 @@ class PersonalManager(ctk.CTk):
             if not messagebox.askyesno('Supprimer', f'Supprimer « {name} » (ID {identifier}) ?', parent=self):
                 return
             self.run_task(lambda: delete_record(key, identifier),
-                          lambda _: self.navigate(key, page, notice='Enregistrement supprimé.'),
+                          lambda _: self.navigate(key, current_page[0], notice='Enregistrement supprimé.'),
                           button=remove, error_label=status)
 
         edit = self.button(toolbar, 'Modifier', edit_selected, secondary=True, width=120)
         edit.pack(side='left', padx=(0, 10))
         remove = self.button(toolbar, 'Supprimer', remove_selected, secondary=True, width=120)
         remove.pack(side='left')
-        edit.configure(state='disabled')
-        remove.configure(state='disabled')
 
         def selection_changed(_):
-            state = 'normal' if tree.selection() else 'disabled'
+            state = 'normal' if tree.selection() and not loading[0] else 'disabled'
             edit.configure(state=state)
             remove.configure(state=state)
         tree.bind('<<TreeviewSelect>>', selection_changed)
@@ -423,26 +454,69 @@ class PersonalManager(ctk.CTk):
         footer.grid_columnconfigure(0, weight=1)
         status = self.label(footer, 'Chargement…', muted=True)
         status.grid(row=0, column=0, sticky='w')
-        previous = self.button(footer, 'Précédent', lambda: self.navigate(key, page-1), secondary=True, width=100)
+        previous = self.button(footer, 'Précédent', lambda: self.navigate(key, current_page[0]-1), secondary=True, width=100)
         previous.grid(row=0, column=1, padx=8)
-        following = self.button(footer, 'Suivant', lambda: self.navigate(key, page+1), secondary=True, width=100)
+        following = self.button(footer, 'Suivant', lambda: self.navigate(key, current_page[0]+1), secondary=True, width=100)
         following.grid(row=0, column=2)
-        previous.configure(state='disabled')
-        following.configure(state='disabled')
 
-        def loaded(result):
-            rows, total = result
-            last_page = max(0, math.ceil(total/25)-1)
-            if page > last_page:
-                self.navigate(key, last_page)
-                return
-            for row in rows:
-                tree.insert('', 'end', iid=str(row[0]), values=[str(value) if value is not None else '—' for value in row])
-            status.configure(text='Aucun enregistrement.' if total == 0 else
-                             f'{total} enregistrements · Page {page+1}/{last_page+1}')
-            previous.configure(state='normal' if page > 0 else 'disabled')
-            following.configure(state='normal' if page < last_page else 'disabled')
-        self.run_task(lambda: list_records(key, page), loaded, error_label=status)
+        def refresh(target_page=0):
+            self.cancel_search()
+            term = search.get()
+            selected_status = choice.get() if choice is not None else 'Tous'
+            self.list_filters[key] = (term, selected_status)
+            serial[0] += 1
+            request_number = serial[0]
+            loading[0] = True
+            for button in (edit, remove, previous, following):
+                button.configure(state='disabled')
+            status.configure(text='Recherche en cours…')
+
+            def loaded(result):
+                if request_number != serial[0]:
+                    return
+                rows, total = result
+                last_page = max(0, math.ceil(total/25)-1)
+                if target_page > last_page:
+                    refresh(last_page)
+                    return
+                current_page[0] = target_page
+                loading[0] = False
+                for item in tree.get_children():
+                    tree.delete(item)
+                for row in rows:
+                    tree.insert('', 'end', iid=str(row[0]), values=[str(value) if value is not None else '—' for value in row])
+                status.configure(text='Aucun résultat.' if total == 0 else
+                                 f'{total} résultats · Page {target_page+1}/{last_page+1}')
+                previous.configure(state='normal' if target_page > 0 else 'disabled')
+                following.configure(state='normal' if target_page < last_page else 'disabled')
+
+            def failed(message):
+                if request_number == serial[0]:
+                    status.configure(text=message)
+            self.run_task(lambda: list_records(key, target_page, search=term, status=selected_status),
+                          loaded, error_callback=failed)
+
+        def changed(*_):
+            self.cancel_search()
+            # Invalidate the previous query immediately, before the debounce expires.
+            serial[0] += 1
+            self.list_filters[key] = (search.get(), choice.get() if choice is not None else 'Tous')
+            loading[0] = True
+            for button in (edit, remove, previous, following):
+                button.configure(state='disabled')
+            self.search_timer = self.after(250, lambda: refresh(0))
+
+        def clear_filters():
+            search.delete(0, 'end')
+            if choice is not None:
+                choice.set('Tous')
+            refresh(0)
+        search_text.trace_add('write', changed)
+        if choice is not None:
+            choice.configure(command=lambda _: refresh(0))
+        self.button(filter_bar, 'Effacer', clear_filters, secondary=True, width=90).grid(row=0, column=2, padx=(10, 0))
+        self.refresh_search = refresh
+        refresh(page)
 
     def profile(self):
         self.heading('Mon compte', 'Vos informations personnelles.', lambda: self.navigate('profile'))
