@@ -1,0 +1,30 @@
+name: Windows executable
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements-build.txt
+      - run: python tests/run_tests.py
+      - run: python -m PyInstaller --clean --noconfirm PersonalManager.spec
+      - name: Verify packaged application
+        shell: pwsh
+        run: |
+          $resultPath = Join-Path $env:RUNNER_TEMP 'personalmanager-check.json'
+          $process = Start-Process -FilePath './dist/PersonalManager/PersonalManager.exe' -ArgumentList @('--self-test-result', "`"$resultPath`"") -PassThru
+          if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Executable check timed out' }
+          if ($process.ExitCode -ne 0) { throw 'Executable check failed' }
+          $result = Get-Content $resultPath -Raw | ConvertFrom-Json
+          if (-not $result.ok) { throw 'Packaged checks did not pass' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PersonalManager-Windows
+          path: dist/PersonalManager/
+          if-no-files-found: error
