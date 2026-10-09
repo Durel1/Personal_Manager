@@ -1,13 +1,25 @@
 name: Windows executable
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 permissions:
   contents: read
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a release commit integrated into main
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release tag must point to a commit integrated into main' }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -23,8 +35,32 @@ jobs:
           if ($process.ExitCode -ne 0) { throw 'Executable check failed' }
           $result = Get-Content $resultPath -Raw | ConvertFrom-Json
           if (-not $result.ok) { throw 'Packaged checks did not pass' }
+      - name: Archive the complete application folder
+        shell: pwsh
+        run: Compress-Archive -Path './dist/PersonalManager' -DestinationPath './dist/PersonalManager-Windows.zip'
       - uses: actions/upload-artifact@v4
         with:
           name: PersonalManager-Windows
-          path: dist/PersonalManager/
+          path: dist/PersonalManager-Windows.zip
           if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: PersonalManager-Windows
+          path: release-assets
+      - name: Publish the verified Windows archive
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create $env:RELEASE_TAG './release-assets/PersonalManager-Windows.zip' --verify-tag --title "PersonalManager $env:RELEASE_TAG" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

@@ -292,6 +292,10 @@ class PersonalManager(ctk.CTk):
         self.navigate('home')
 
     def change_theme(self, selection):
+        # On Windows, CustomTkinter restores focus asynchronously after changing
+        # the titlebar theme. Keep that target alive while rebuilding the charts.
+        if self.current_view == 'home':
+            self.focus_set()
         ctk.set_appearance_mode('Light' if selection == 'Clair' else 'Dark')
         self.apply_table_theme()
         if self.current_view == 'home':
