@@ -162,8 +162,12 @@ class ModernWidgetTests(unittest.TestCase):
     def test_dashboard_charts_follow_theme_and_are_released_on_navigation(self):
         self.sign_in_test_user()
         self.assertEqual(len(self.app.chart_canvases), 2)
+        old_chart = self.app.chart_canvases[-1].get_tk_widget()
+        old_chart.focus_set()
+        self.app.update()
         self.app.change_theme('Clair')
         self.drain_tasks()
+        self.assertFalse(old_chart.winfo_exists())
         self.assertEqual(len(self.app.chart_canvases), 2)
         self.app.navigate('clients')
         self.drain_tasks()
