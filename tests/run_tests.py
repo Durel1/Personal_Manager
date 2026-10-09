@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
     import bcrypt
 except ModuleNotFoundError:
-    raise SystemExit('bcrypt absent : installez les dépendances avec python -m pip install -r requirements.txt')
+    raise SystemExit('bcrypt absent : installez les dépendances avec python -m pip install -r requirements-dev.txt')
 
 if __name__ == '__main__':
     suite = unittest.defaultTestLoader.discover(str(Path(__file__).parent))
