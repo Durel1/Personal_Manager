@@ -1,5 +1,8 @@
 # PersonalManager
 
+[![Tests Windows](https://github.com/Durel1/Personal_Manager/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Durel1/Personal_Manager/actions/workflows/tests.yml)
+[![Licence MIT](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
+
 Application de gestion locale pour petites structures : équipes, clients,
 rendez-vous et transactions financières dans une fenêtre CustomTkinter.
 
@@ -51,9 +54,10 @@ employés ; un administrateur peut ensuite leur attribuer des droits.
 
 ## Exécutable Windows
 
-La construction PyInstaller est configurée, mais le binaire doit être construit
-et validé sur Windows avant publication. Aucun exécutable précompilé n’est inclus
-à ce stade dans ce dépôt.
+Les versions publiées sont disponibles dans [Releases](https://github.com/Durel1/Personal_Manager/releases).
+Une Release est créée après réussite des tests, de la construction et du contrôle
+des dépendances embarquées. Tant qu’aucune Release n’est publiée, construire
+l’application avec les commandes suivantes.
 
 ```bat
 .venv\Scripts\python.exe -m pip install -r requirements-build.txt
@@ -128,7 +132,8 @@ modifie les widgets ; les résultats obsolètes sont rejetés après navigation.
 .venv\Scripts\python.exe tests/run_tests.py
 ```
 
-La suite comporte **94 tests**. Le lanceur refuse les tests ignorés. Les tests
+La suite comporte **94 tests**. Le lanceur refuse les tests ignorés et isole chaque
+test graphique dans un processus avec un délai maximal. Les tests
 de widgets nécessitent un bureau graphique. Les workflows GitHub comprennent
 les tests Windows et une construction manuelle avec contrôle du binaire.
 
@@ -151,3 +156,9 @@ Les explications pédagogiques et les procédures de validation sont dans
 Ne pas publier sa base personnelle ou ses caches. Le guide de phase 4 fournit
 un outil qui retire les fichiers déjà suivis par Git tout en les conservant sur
 le disque. Cela ne réécrit pas l’ancien historique.
+
+## Contribution et licence
+
+Les changements passent par une branche et une PR, avec des commits ciblés et des
+tests réussis. [Guide de nettoyage et livraison](docs/REPOSITORY_MAINTENANCE.md).
+Le code est distribué sous [licence MIT](LICENSE).
