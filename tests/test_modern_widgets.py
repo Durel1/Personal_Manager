@@ -72,6 +72,23 @@ class ModernWidgetTests(unittest.TestCase):
         self.drain_tasks()
         self.assertEqual(completed, [])
 
+    def test_close_cancels_library_and_child_widget_callbacks(self):
+        completed = []
+        errors = []
+        self.app.screen.after(1000,lambda: completed.append('child'))
+        self.app.after_idle(lambda: completed.append('idle'))
+        self.app.tk.createcommand('pm_test_bgerror',errors.append)
+        self.app.tk.eval('proc bgerror {message} {pm_test_bgerror $message}')
+        try:
+            self.app.close()
+            self.assertEqual(self.app.tk.splitlist(self.app.tk.call('after','info')), ())
+            self.app.tk.call('update')
+            self.assertEqual(completed, [])
+            self.assertEqual(errors, [])
+            self.app.close()  # Repeated close is harmless.
+        finally:
+            self.app.tk.deletecommand('pm_test_bgerror')
+
     def test_failed_success_callback_displays_error_instead_of_crashing(self):
         def broken(_):
             raise RuntimeError('simulated callback failure')

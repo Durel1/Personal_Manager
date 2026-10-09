@@ -18,6 +18,7 @@ from backend.management import delete_record, form_fields, get_record, initial_v
 from backend.statistics import statistics_snapshot
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from ui.charts import event_figure, spending_figure
+from ui.lifecycle import cancel_pending_callbacks
 
 BACKGROUND = ('#F3F6FB', '#0B1220')
 SURFACE = ('#FFFFFF', '#142033')
@@ -46,6 +47,7 @@ class PersonalManager(ctk.CTk):
         self.current_view = None
         self.list_filters = {}
         self.search_timer = None
+        self._closed = False
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.style = ttk.Style(self)
         self.style.theme_use('clam')
@@ -140,12 +142,22 @@ class PersonalManager(ctk.CTk):
             'Une erreur d’affichage est survenue. Actualisez la page ou relancez l’application.',parent=self)
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.generation += 1
         self.cancel_search()
         self.cleanup_charts()
         for identifier in self.polls:
             self.after_cancel(identifier)
+        self.polls.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
-        self.destroy()
+        cancel_pending_callbacks(self)
+        try:
+            self.destroy()
+        finally:
+            # Disposal of library widgets may schedule additional idle work.
+            cancel_pending_callbacks(self)
 
     def auth_layout(self, title, subtitle):
         self.replace_root()

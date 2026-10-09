@@ -105,4 +105,3 @@ Au premier lancement, la base de données se créera automatiquement.
 
 
 Une interface de connexion apparaîtra. Vous pourrez vous connecter ou créer un compte pour accéder aux fonctionnalités.
-

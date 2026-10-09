@@ -37,7 +37,7 @@ git am "C:\CHEMIN\PersonalManager_Phase4.patch"
 .venv\Scripts\python.exe tests/run_tests.py
 ```
 
-La suite contient **97 tests** et doit passer sans test ignoré sous Windows.
+La suite contient **100 tests** et doit passer sans test ignoré sous Windows.
 requirements-build.txt inclut les dépendances de l’application, les tests et
 PyInstaller. Utiliser le Python standard de l’environnement virtuel.
 
@@ -136,7 +136,7 @@ avec des données de démonstration isolées. »
 
 ## Vérifications de préparation et limites
 
-Localement : **97 tests, 71 réussis, 26 ignorés**. bcrypt et CustomTkinter ne sont
+Localement : **100 tests, 73 réussis, 27 ignorés**. bcrypt et CustomTkinter ne sont
 pas disponibles dans cet environnement ; les tests cryptographiques, les widgets
 et le contrôle intégré complet restent à exécuter sur Windows. Les nouveaux tests
 exécutés vérifient le chemin de stockage, la priorité du chemin personnalisé,

@@ -129,7 +129,7 @@ modifie les widgets ; les résultats obsolètes sont rejetés après navigation.
 .venv\Scripts\python.exe tests/run_tests.py
 ```
 
-La suite comporte **97 tests**. Le lanceur refuse les tests ignorés. Les tests
+La suite comporte **100 tests**. Le lanceur refuse les tests ignorés. Les tests
 de widgets nécessitent un bureau graphique. Les workflows GitHub comprennent
 les tests Windows et une construction manuelle avec contrôle du binaire.
 
