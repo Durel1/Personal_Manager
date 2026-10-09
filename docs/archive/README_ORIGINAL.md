@@ -1,3 +1,5 @@
+> Archive documentaire de la première interface. Les anciens fichiers et captures sont disponibles dans l’historique Git. Ses instructions ne décrivent pas la version actuelle ; consultez [README.md](../../README.md).
+
 # PersonalManager — version moderne (phase 3)
 
 Application de gestion locale en Python, SQLite et CustomTkinter : employés,

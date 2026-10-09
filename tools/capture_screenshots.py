@@ -63,7 +63,7 @@ def main():
             app.executor.shutdown(wait=True,cancel_futures=True)
             app.close()
             app = None
-        readme = ROOT/'readMe.md'
+        readme = ROOT/'README.md'
         text = readme.read_text(encoding='utf-8')
         start,end = '<!-- screenshots:start -->','<!-- screenshots:end -->'
         left,rest = text.split(start,1)

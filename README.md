@@ -86,10 +86,9 @@ un test interactif de la fenêtre et des formulaires.
 Les données restent locales et les migrations sont transactionnelles. L’exécutable
 ne contient aucune base personnelle. Fermer l’application avant de copier une base.
 
-Pour tester sans modifier la base habituelle :
+Pour tester sur une base dédiée, créée automatiquement au premier lancement :
 
 ```bat
-copy projet_stage.db "%TEMP%\personalmanager-demo.db"
 set "PERSONAL_MANAGER_DB=%TEMP%\personalmanager-demo.db"
 .venv\Scripts\python.exe main.py
 set "PERSONAL_MANAGER_DB="
@@ -129,7 +128,7 @@ modifie les widgets ; les résultats obsolètes sont rejetés après navigation.
 .venv\Scripts\python.exe tests/run_tests.py
 ```
 
-La suite comporte **100 tests**. Le lanceur refuse les tests ignorés. Les tests
+La suite comporte **94 tests**. Le lanceur refuse les tests ignorés. Les tests
 de widgets nécessitent un bureau graphique. Les workflows GitHub comprennent
 les tests Windows et une construction manuelle avec contrôle du binaire.
 
@@ -147,7 +146,7 @@ Les explications pédagogiques et les procédures de validation sont dans
 - L’échéance financière est facultative ; une facture sans échéance n’est pas
  déclarée arbitrairement en retard.
 - La réinitialisation du mot de passe et les notifications système ne sont pas implémentées.
-- L’ancienne interface est conservée pour l’historique ; utiliser `main.py`.
+- L’ancienne interface reste consultable dans l’historique Git ; `main.py` lance la version actuelle.
 
 Ne pas publier sa base personnelle ou ses caches. Le guide de phase 4 fournit
 un outil qui retire les fichiers déjà suivis par Git tout en les conservant sur
